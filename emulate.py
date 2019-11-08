@@ -15,6 +15,7 @@ import random
 parser = argparse.ArgumentParser()
 parser.add_argument("--auth", dest='auth_key', help="authorization token")
 parser.add_argument("--api", dest='api', help="url of kci api")
+parser.add_argument("--email", dest='email', help="email address to send to"
 args = parser.parse_args()
 
 auth_key = args.auth_key
@@ -197,7 +198,7 @@ def request_email(type='build', format='txt'):
         email_data['build_report'] = 1
     else:
         email_data['boot_report'] = 1
-    email_data['send_to'] = ["matt@blacklabsystems.com"]
+    email_data['send_to'] = [args.email]
     email_data['format'] = [format]
     email_data['delay'] = 1
     send_url = urllib.parse.urljoin(api, '/send')
@@ -234,18 +235,6 @@ def post_boot(environment, arch, defconfig, result='PASS'):
         'version': 1.1}
     boot_url = urllib.parse.urljoin(api, '/boot')
     publish_response, status_code = do_post_retry(url=boot_url, data=json.dumps(boot_data), headers=headers)
-
-# build_fake_data = []
-# arch_list = ['x86_64', 'i386', 'arm64', 'mips', 'arm', 'riscv']
-# #arch_list = ['arm64', 'arm']
-# for arch in arch_list:
-#     for defconfig in ['defconfig', 'tinyconfig', 'allnoconfig']:
-#         for environment in ['gcc-8', 'clang-8', 'gcc-7']:
-#             build_fake_data.append({'environment': environment, 'arch': arch, 'defconfig': defconfig, 'result': random.choice(['FAIL', 'PASS'])})
-#
-#
-# for fd in build_fake_data:
-#     post_build('arm64', 'gcc-7', 'defconfig', 'PASS', 4)
 
 # post_build('arm64', 'compiler-0', 'defconfig', 'PASS', 0, 0)
 # post_build('arm64', 'compiler-1', 'defconfig', 'PASS', 1, 0)
