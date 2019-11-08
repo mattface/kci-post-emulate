@@ -22,7 +22,7 @@ api = args.api
 describe = 'dummydescribe-{}'.format(int(time.time()))
 branch = 'master'
 
-commit = '25b67b1781a4a34b7547e8b449d2f9bd45c18fda'
+commit = '25b67b1781a4a34b7547e{}'.format(int(time.time()))
 tree = 'dummytree'
 
 def create_lab(lab_name):
@@ -78,18 +78,24 @@ def create_dummy_file(path, size):
         out.seek((1024 * 1024 * size) - 1)
         out.write(b'\0')
 
-def create_build_files(path, result):
-    dummy_path = os.path.join(os.getcwd(), 'dummyfiles', result)
+def create_build_files(path, warnings=False, errors=False):
+    logfile = 'build.log'
+    dest = os.path.join(path, logfile)
     os.makedirs(path, exist_ok=True)
-    for root, dirs, files in os.walk(dummy_path):
-        for file_name in files:
-            file_path = os.path.join(dummy_path, file_name)
-            #print("copying {} to {}".format(file_path, path))
-            shutil.copy(file_path, path)
+    log_path = os.path.join(os.getcwd(), 'dummyfiles', 'builds', logfile)
+    shutil.copy(log_path, dest)
+    if warnings:
+        with open(dest, 'a') as outfile:
+            for x in range(0, warnings):
+                #print("writing a warning to {}".format(dest))
+                outfile.write('../drivers/soc/rockchip/pm_domains.c:{}:21: warning: {} warning here\n\n'.format(x, x))
+    if errors:
+        with open(dest, 'a') as outfile:
+            for x in range(0, errors):
+                outfile.write('clang: error: assembler command failed with exit code 1\n\n')
 
 def create_build_json(path, resource, arch, environment, defconfig, result):
     output = os.path.join(path, 'build.json')
-    #print("creating build.json at {}".format(output))
     build_json = {
         "compiler_version_full": "{} (Debian 7.3.0-19) 7.3.0".format(environment[:-2]),
         "kconfig_fragments": None,
@@ -128,9 +134,9 @@ def create_build_json(path, resource, arch, environment, defconfig, result):
         json.dump(build_json, out, indent=4, sort_keys=True)
 
 
-def post_build(arch, environment, defconfig, result):
-    print("{} {} {} {}".format(arch, environment, defconfig, result))
+def post_build(arch, environment, defconfig, result, warnings, errors):
     path = '{}/{}/{}/{}/{}/{}'.format(tree, branch, describe, arch, defconfig, environment)
+    print("Posting build to {}: {} ({} warnings)".format(path, result, warnings))
     build_data = {
         'kernel': describe,
         'file_server_resource': path,
@@ -143,8 +149,8 @@ def post_build(arch, environment, defconfig, result):
         'arch': arch}
     headers = {'Authorization': auth_key}
     artifacts = []
-    install_path = os.path.join(os.getcwd(), "dummyfiles", tree, branch, describe, arch, defconfig, environment, result)
-    create_build_files(install_path, result)
+    install_path = os.path.join(os.getcwd(), "dummyfiles", tree, branch, describe, arch, defconfig, environment)
+    create_build_files(install_path, warnings, errors)
     create_build_json(install_path, path, arch, environment, defconfig, result)
     count = 1
     for root, dirs, files in os.walk(install_path):
@@ -162,9 +168,11 @@ def post_build(arch, environment, defconfig, result):
             count += 1
     upload_url = urllib.parse.urljoin(api, '/upload')
     #print("Uploading build to storage...")
+    #print(artifacts)
     publish_response, status_code = do_post_retry(
         url=upload_url, data=build_data, headers=headers, files=artifacts)
     build_url = urllib.parse.urljoin(api, '/build')
+    #print(build_data)
     headers['Content-Type'] = 'application/json'
     do_post_retry(url=build_url, data=json.dumps(build_data),
                   headers=headers)
@@ -199,13 +207,12 @@ def create_lab_name():
     letters = string.ascii_lowercase
     return 'lab-' + ''.join(random.choice(letters) for i in range(8))
 
-def post_boot(environment, result='PASS'):
-    print("Pushing a boot")
+def post_boot(environment, arch, defconfig, result='PASS'):
     path = '{}/{}/{}/{}/{}/{}'.format(tree, branch, describe, arch, defconfig, environment)
+    print("Pushing a boot: {}".format(path))
     headers = {}
     lab_name = create_lab_name()
     lab_auth_key = create_lab(lab_name)
-    print(lab_auth_key)
     headers['Authorization'] = lab_auth_key
     headers['Content-Type'] = 'application/json'
     boot_data = {
@@ -228,23 +235,52 @@ def post_boot(environment, result='PASS'):
     boot_url = urllib.parse.urljoin(api, '/boot')
     publish_response, status_code = do_post_retry(url=boot_url, data=json.dumps(boot_data), headers=headers)
 
-build_fake_data = []
-#arch_list = ['x86_64', 'i386', 'arm64', 'mips', 'arm', 'riscv']
-arch_list = ['arm64', 'arm']
-for arch in arch_list:
-    for defconfig in ['defconfig']:
-        for environment in ['gcc-8', 'clang-8']:
-            build_fake_data.append({'environment': environment, 'arch': arch, 'defconfig': defconfig, 'result': 'FAIL'})
+# build_fake_data = []
+# arch_list = ['x86_64', 'i386', 'arm64', 'mips', 'arm', 'riscv']
+# #arch_list = ['arm64', 'arm']
+# for arch in arch_list:
+#     for defconfig in ['defconfig', 'tinyconfig', 'allnoconfig']:
+#         for environment in ['gcc-8', 'clang-8', 'gcc-7']:
+#             build_fake_data.append({'environment': environment, 'arch': arch, 'defconfig': defconfig, 'result': random.choice(['FAIL', 'PASS'])})
+#
+#
+# for fd in build_fake_data:
+#     post_build('arm64', 'gcc-7', 'defconfig', 'PASS', 4)
 
-for fd in build_fake_data:
-    post_build(fd['arch'], fd['environment'], fd['defconfig'], fd['result'])
+# post_build('arm64', 'compiler-0', 'defconfig', 'PASS', 0, 0)
+# post_build('arm64', 'compiler-1', 'defconfig', 'PASS', 1, 0)
+# post_build('arm64', 'compiler-1', 'otherconfig', 'PASS', 1, 0)
+# post_build('arm64', 'compiler-2', 'defconfig', 'PASS', 2, 0)
+# post_build('arm64', 'compiler-fail1', 'defconfig', 'FAIL', False, 1)
+# post_build('arm64', 'compiler-fail', 'otherconfig', 'FAIL', False, 0)
+# post_build('arm64', 'compiler-fail2', 'fail2config', 'FAIL', False, 2)
+# post_build('arm', 'compiler-fail', 'defconfig', 'FAIL', False, 0)
+# post_build('arm', 'compiler-fail2', 'warn1config', 'FAIL', 1, 2)
+# post_build('arm', 'compiler-fail', 'otherconfig', 'FAIL', False, 0)
+# post_build('arm', 'compiler-fail2', 'warn2config', 'FAIL', 2, 2)
+# post_build('arm', 'compiler-1', 'allnoconfig', 'PASS', 1, 0)
+# post_build('arm', 'compiler-2', 'defconfig', 'PASS', 2, 0)
+# post_build('arm', 'compiler-3', 'defconfig', 'PASS', 3, 0)
+
+post_build('arm64', 'gcc-8', 'defconfig', 'PASS', 1, 1)
+post_build('arm64', 'clang-8', 'defconfig', 'PASS', 2, 2)
+
 time.sleep(1)
 api_builds_finished()
 #api_builds_finished('html')
 time.sleep(1)
-post_boot('clang-8', 'PASS')
-post_boot('gcc-7', 'PASS')
-post_boot('gcc-8', 'PASS')
-post_boot('clang-8', 'FAIL')
-request_email('boot', 'txt')
+post_boot('gcc-8', 'arm64', 'defconfig', 'FAIL')
+#post_boot('gcc-8', 'arm64', 'defconfig', 'PASS')
+post_boot('clang-8', 'arm64', 'defconfig', 'FAIL')
+#post_boot('clang-8', 'arm64', 'defconfig', 'PASS')
+# post_boot('gcc-8', 'arm', 'PASS')
+# post_boot('gcc-8', 'arm64', 'PASS')
+# post_boot('clang-8', 'arm64', 'FAIL')
+# post_boot('clang-8', 'mips', 'FAIL')
+# post_boot('clang-8', 'x86', 'FAIL')
+#request_email('boot', 'txt')
+time.sleep(1)
+#request_email('build', 'txt')
+#request_email('build', 'html')
 #request_email('boot', 'html')
+request_email('boot', 'txt')
